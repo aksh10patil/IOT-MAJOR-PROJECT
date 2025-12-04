@@ -5,6 +5,13 @@
   --foreground: #171717;
 }
 
+
+@layer utilities {
+  .font-raleway {
+    font-family: var(--font-raleway, system-ui);
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
