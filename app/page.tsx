@@ -1,4 +1,4 @@
-"use client"
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -17,7 +17,8 @@ import {
   Milk,
   Carrot,
   Banana,
-  RefreshCcw
+  RefreshCcw,
+  Waves // For Turbidity
 } from 'lucide-react';
 
 // --- Types & Interfaces ---
@@ -36,7 +37,8 @@ interface BaseValues {
   h2s: number;
   ethyl: number;
   alcohol: number;
-  [key: string]: number; // Allows dynamic access by string key
+  turbidity: number; // Added Turbidity
+  [key: string]: number;
 }
 
 interface FoodProfile {
@@ -44,63 +46,80 @@ interface FoodProfile {
   icon: React.ReactNode;
   baseValues: BaseValues;
   thresholds: Record<string, Threshold>;
+  graphs: string[]; // New: Which charts to show for this food
 }
 
-// Define valid keys for our food profiles to prevent invalid lookups
 type FoodProfileKey = 'banana' | 'milk' | 'meat' | 'egg' | 'veggies';
 
 // --- Configuration & Domain Knowledge ---
 
 const FOOD_PROFILES: Record<FoodProfileKey, FoodProfile> = {
   banana: {
-    name: 'Banana (Fruit)',
+    name: 'Fruit',
     icon: <Banana className="w-6 h-6" />,
-    baseValues: { temp: 18, humidity: 85, voc: 100, ammonia: 0, h2s: 0, ethyl: 10, alcohol: 0 },
+    baseValues: { temp: 18, humidity: 85, voc: 100, ammonia: 0, h2s: 0, ethyl: 10, alcohol: 0, turbidity: 0 },
     thresholds: {
-      ethyl: { max: 150, weight: 2 }, // High ethylene = over-ripe
-      alcohol: { max: 50, weight: 3 }, // Alcohol = rotting/fermenting
+      ethyl: { max: 150, weight: 2 },
+      alcohol: { max: 50, weight: 3 },
       temp: { max: 30, weight: 1 }
-    }
+    },
+    graphs: ['ethyl', 'alcohol'] // Specific graphs for Banana
   },
   milk: {
     name: 'Pasteurized Milk',
     icon: <Milk className="w-6 h-6" />,
-    baseValues: { temp: 4, humidity: 90, voc: 20, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0 },
+    baseValues: { temp: 4, humidity: 90, voc: 20, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 5 },
     thresholds: {
-      temp: { max: 7, weight: 3 }, // Temp is critical for milk
-      voc: { max: 300, weight: 2 }, // Souring releases VOCs
-      ammonia: { max: 10, weight: 1 }
-    }
+      temp: { max: 7, weight: 3 },
+      voc: { max: 300, weight: 2 },
+      turbidity: { max: 50, weight: 2 }, // High turbidity in whey/clear liquids = bad, or separation in milk
+    },
+    graphs: ['turbidity', 'temp'] // Specific graphs for Milk
   },
   meat: {
     name: 'Raw Meat (Poultry/Beef)',
     icon: <Beef className="w-6 h-6" />,
-    baseValues: { temp: 2, humidity: 80, voc: 50, ammonia: 2, h2s: 0, ethyl: 0, alcohol: 0 },
+    baseValues: { temp: 2, humidity: 80, voc: 50, ammonia: 2, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 0 },
     thresholds: {
-      ammonia: { max: 25, weight: 3 }, // Protein breakdown
-      h2s: { max: 2, weight: 3 }, // Sulfur smell
+      ammonia: { max: 25, weight: 3 },
+      h2s: { max: 2, weight: 3 },
       temp: { max: 5, weight: 2 }
-    }
+    },
+    graphs: ['ammonia', 'h2s'] // Specific graphs for Meat
   },
   egg: {
     name: 'Chicken Eggs',
     icon: <Egg className="w-6 h-6" />,
-    baseValues: { temp: 10, humidity: 70, voc: 10, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0 },
+    baseValues: { temp: 10, humidity: 70, voc: 10, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 0 },
     thresholds: {
-      h2s: { max: 5, weight: 3 }, // Rotten egg smell
+      h2s: { max: 5, weight: 3 },
       ammonia: { max: 15, weight: 2 }
-    }
+    },
+    graphs: ['h2s', 'ammonia'] // Specific graphs for Eggs
   },
   veggies: {
-    name: 'Fresh Vegetables',
+    name: 'Vegetables',
     icon: <Carrot className="w-6 h-6" />,
-    baseValues: { temp: 5, humidity: 95, voc: 30, ammonia: 0, h2s: 0, ethyl: 5, alcohol: 0 },
+    baseValues: { temp: 5, humidity: 95, voc: 30, ammonia: 0, h2s: 0, ethyl: 5, alcohol: 0, turbidity: 10 },
     thresholds: {
-      humidity: { min: 80, weight: 1 }, // Need high humidity
-      voc: { max: 200, weight: 2 }, // Decomposition
-      temp: { max: 10, weight: 1 }
-    }
+      humidity: { min: 80, weight: 1 },
+      voc: { max: 200, weight: 2 },
+      turbidity: { max: 100, weight: 1 } // Dirty wash water check
+    },
+    graphs: ['voc', 'humidity'] // Specific graphs for Veggies
   }
+};
+
+// --- Helper for Labels ---
+const SENSOR_LABELS: Record<string, { label: string, color: string }> = {
+  temp: { label: 'Temperature (°C)', color: '#fbbf24' },
+  humidity: { label: 'Humidity (%)', color: '#60a5fa' },
+  voc: { label: 'VOC Levels (ppb)', color: '#a78bfa' },
+  ammonia: { label: 'Ammonia (ppm)', color: '#f43f5e' },
+  h2s: { label: 'H2S Gas (ppm)', color: '#fb7185' },
+  ethyl: { label: 'Ethylene (ppm)', color: '#34d399' },
+  alcohol: { label: 'Alcohol (ppm)', color: '#2dd4bf' },
+  turbidity: { label: 'Turbidity (NTU)', color: '#a3e635' },
 };
 
 // --- Components ---
@@ -115,7 +134,6 @@ interface SensorCardProps {
 }
 
 const SensorCard: React.FC<SensorCardProps> = ({ title, value, unit, icon, status, max }) => {
-  // Calculate percentage for progress bar
   const percent = Math.min(100, Math.max(0, (value / (max * 1.5)) * 100));
   
   let colorClass = "text-emerald-500";
@@ -146,7 +164,6 @@ const SensorCard: React.FC<SensorCardProps> = ({ title, value, unit, icon, statu
         <span className="text-sm text-slate-500 mb-1">{unit}</span>
       </div>
 
-      {/* Progress Bar */}
       <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
         <div 
           className={`h-full rounded-full transition-all duration-1000 ease-out ${bgClass}`}
@@ -198,71 +215,65 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ quality }) => {
   );
 };
 
-interface LiveChartProps {
+interface SimpleBarChartProps {
   data: number[];
   color?: string;
 }
 
-const LiveChart: React.FC<LiveChartProps> = ({ data, color = "#10b981" }) => {
-  if (!data || data.length < 2) return null;
-
-  const maxVal = Math.max(...data) * 1.2;
-  const minVal = 0;
-  const range = maxVal - minVal || 1; // Avoid divide by zero
+const SimpleBarChart: React.FC<SimpleBarChartProps> = ({ data, color = "#10b981" }) => {
+  if (!data || data.length === 0) return null;
   
-  const points = data.map((val, i) => {
-    const x = (i / (data.length - 1)) * 100;
-    const y = 100 - ((val - minVal) / range) * 100;
-    return `${x},${y}`;
-  }).join(' ');
+  // Find max for scaling, default to at least 10 to avoid huge bars for small numbers
+  const maxVal = Math.max(...data, 10) * 1.2;
 
   return (
-    <div className="w-full h-32 mt-4 bg-slate-900/50 rounded-lg p-2 relative overflow-hidden">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
-        <polyline
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          points={points}
-          vectorEffect="non-scaling-stroke"
-          className="transition-all duration-300 ease-linear"
-        />
-        {/* Gradient fill area */}
-        <polygon 
-          fill={color} 
-          fillOpacity="0.1" 
-          points={`0,100 ${points} 100,100`} 
-        />
-      </svg>
+    <div className="w-full h-32 mt-4 flex items-end justify-between gap-2 p-2 bg-slate-900/50 rounded-lg border border-slate-800">
+      {data.map((val, i) => {
+        const height = Math.min(100, (val / maxVal) * 100);
+        return (
+          <div 
+            key={i} 
+            className="w-full rounded-t-sm transition-all duration-500 hover:brightness-125 relative group"
+            style={{ 
+              height: `${Math.max(4, height)}%`, // Min height 4% to show 0 values
+              backgroundColor: color,
+              opacity: 0.8
+            }}
+          >
+             {/* Simple tooltip on hover */}
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 border border-slate-600">
+              {val}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 };
 
 // --- Main Application ---
 
-export default function Page() {
+export default function App() {
   const [activeTab, setActiveTab] = useState<FoodProfileKey>('banana');
   const [simulationMode, setSimulationMode] = useState<'normal' | 'spoilage'>('normal');
   const [readings, setReadings] = useState<BaseValues>(FOOD_PROFILES['banana'].baseValues);
-  const [history, setHistory] = useState<{ ammonia: number[]; temp: number[]; voc: number[] }>({ 
-    ammonia: new Array(10).fill(0), 
-    temp: new Array(10).fill(18), 
-    voc: new Array(10).fill(100) 
+  
+  // Generic history state that can hold any key
+  const [history, setHistory] = useState<Record<string, number[]>>({ 
+    ammonia: [], temp: [], voc: [], h2s: [], ethyl: [], alcohol: [], humidity: [], turbidity: []
   });
+  
   const [quality, setQuality] = useState<'safe' | 'warning' | 'unsafe'>('safe');
   const [isScanning, setIsScanning] = useState(false);
 
-  // Logic to determine sensor status color
   const getStatus = (sensor: string, value: number, profile: FoodProfile): 'good' | 'warning' | 'danger' => {
     const rules = profile.thresholds[sensor];
     if (!rules) return 'good';
     
-    // Check Max limit
     if (rules.max) {
       if (value > rules.max * 1.5) return 'danger';
       if (value > rules.max) return 'warning';
     }
-    // Check Min limit (e.g. for humidity)
     if (rules.min) {
       if (value < rules.min * 0.7) return 'danger';
       if (value < rules.min) return 'warning';
@@ -272,39 +283,32 @@ export default function Page() {
 
   const currentProfile = FOOD_PROFILES[activeTab];
 
-  // Manual Sensor Scan Function
   const takeReading = () => {
     setIsScanning(true);
     
-    // Artificial delay to feel like a real sensor read
     setTimeout(() => {
       const isSpoiling = simulationMode === 'spoilage';
       const newReadings = { ...readings }; 
       
-      // Calculate new values based on profile base + noise or spoilage factor
       Object.keys(currentProfile.baseValues).forEach(key => {
         let base = currentProfile.baseValues[key];
         let noise = (Math.random() - 0.5) * (base * 0.1 || 2);
         
         if (isSpoiling) {
-          // Rapidly increase bad indicators if spoiling
           if (['ammonia', 'h2s', 'voc', 'ethyl', 'alcohol'].includes(key)) {
              base = base + 50 + (Math.random() * 20); 
           }
-          // Temp usually rises slightly in decomposition
+          if (key === 'turbidity') base = base + 40 + (Math.random() * 10); // Spoilage = cloudy
           if (key === 'temp') base += 5;
         }
 
-        // Apply new reading
         newReadings[key] = parseFloat((base + noise).toFixed(1));
       });
 
       setReadings(newReadings);
 
-      // Update Quality Status based on Weighted thresholds
       let score = 0;
       Object.entries(currentProfile.thresholds).forEach(([key, rule]) => {
-         // Force strict check for max, default to Infinity if not present to avoid TS warnings
          if (newReadings[key] > (rule.max || Infinity)) score += rule.weight;
          if (rule.min && newReadings[key] < rule.min) score += rule.weight;
       });
@@ -313,35 +317,62 @@ export default function Page() {
       else if (score >= 1) setQuality('warning');
       else setQuality('safe');
 
-      // Update History (Shift and append)
-      setHistory(prev => ({
-        ammonia: [...prev.ammonia.slice(1), newReadings.ammonia],
-        temp: [...prev.temp.slice(1), newReadings.temp],
-        voc: [...prev.voc.slice(1), newReadings.voc]
-      }));
+      setHistory(prev => {
+        const next = { ...prev };
+        Object.keys(newReadings).forEach(key => {
+           if (!next[key]) next[key] = new Array(12).fill(0);
+           // Keep last 12 points
+           next[key] = [...next[key].slice(1), newReadings[key]];
+        });
+        return next;
+      });
 
       setIsScanning(false);
     }, 800);
   };
 
-  // Reset readings when tab changes
   useEffect(() => {
     const profile = FOOD_PROFILES[activeTab];
     setReadings(profile.baseValues);
     setQuality('safe');
     setSimulationMode('normal');
-    // Pre-fill history so charts aren't empty
-    setHistory({ 
-      ammonia: new Array(10).fill(profile.baseValues.ammonia), 
-      temp: new Array(10).fill(profile.baseValues.temp), 
-      voc: new Array(10).fill(profile.baseValues.voc) 
+    
+    // Generate Pre-filled History: Mix of Fresh and Not-So-Fresh
+    // This creates a realistic looking "past" on the graphs
+    const newHistory: Record<string, number[]> = {};
+    
+    Object.keys(profile.baseValues).forEach(key => {
+      const base = profile.baseValues[key];
+      const limit = profile.thresholds[key]?.max || (base * 1.5) || 20;
+
+      newHistory[key] = Array.from({ length: 12 }).map(() => {
+        // 70% chance of "Fresh" (near base), 30% chance of "Not So Fresh" (spikes)
+        const isFresh = Math.random() > 0.3; 
+        
+        let val;
+        if (isFresh) {
+          // Clean data: Base +/- small noise
+          val = base + ((Math.random() - 0.5) * (base * 0.2 || 2));
+        } else {
+          // "Not so fresh" data: Elevated levels (approaching limit)
+          // Simulates moments where sensor detected spoilage pockets or drift
+          val = base + (Math.random() * (limit * 0.5));
+        }
+        
+        return Math.max(0, parseFloat(val.toFixed(1)));
+      });
+      
+      // Ensure the very last point (current) is the ideal base to start fresh
+      newHistory[key][11] = base;
     });
+    
+    setHistory(newHistory);
+
   }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-emerald-500 selection:text-white pb-12">
       
-      {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
         <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
@@ -349,13 +380,12 @@ export default function Page() {
               <Activity className="w-6 h-6 text-white" />
             </div>
             <div>
-
+              <h1 className="text-xl font-bold text-white">BioSense IoT</h1>
               <p className="text-xs text-slate-400">Advanced Food Quality Monitoring</p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Simulation Controls */}
             <div className="flex bg-slate-800 p-1 rounded-lg">
               <button 
                 onClick={() => setSimulationMode('normal')}
@@ -371,7 +401,6 @@ export default function Page() {
               </button>
             </div>
 
-            {/* Manual Scan Button */}
             <button
               onClick={takeReading}
               disabled={isScanning}
@@ -386,7 +415,6 @@ export default function Page() {
 
       <main className="max-w-7xl mx-auto px-4 mt-8">
         
-        {/* Navigation Tabs */}
         <div className="flex overflow-x-auto gap-2 pb-4 mb-6 scrollbar-hide">
           {Object.entries(FOOD_PROFILES).map(([key, profile]) => (
             <button
@@ -406,7 +434,6 @@ export default function Page() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Left Column: Status & Environmental */}
           <div className="space-y-6">
             <StatusBadge quality={quality} />
             
@@ -437,17 +464,15 @@ export default function Page() {
             
              <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
                <h3 className="text-sm font-medium text-slate-400 mb-2">Temperature Trend</h3>
-               <LiveChart data={history.temp} color="#fbbf24" />
+               <SimpleBarChart data={history.temp} color="#fbbf24" />
              </div>
           </div>
 
-          {/* Center & Right Column: Chemical Sensors */}
           <div className="lg:col-span-2 space-y-6">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Primary Spoilage Indicators */}
-              <SensorCard 
-                title="Ammonia (NH3)" 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <SensorCard 
+                title="Ammonia" 
                 value={readings.ammonia} 
                 unit="ppm" 
                 icon={<Atom className="w-4 h-4" />}
@@ -455,12 +480,20 @@ export default function Page() {
                 status={getStatus('ammonia', readings.ammonia, currentProfile)}
               />
                <SensorCard 
-                title="Hydrogen Sulfide (H2S)" 
+                title="H2S Gas" 
                 value={readings.h2s} 
                 unit="ppm" 
                 icon={<FlaskConical className="w-4 h-4" />}
                 max={10}
                 status={getStatus('h2s', readings.h2s, currentProfile)}
+              />
+               <SensorCard 
+                title="Turbidity" 
+                value={readings.turbidity} 
+                unit="NTU" 
+                icon={<Waves className="w-4 h-4" />}
+                max={100}
+                status={getStatus('turbidity', readings.turbidity, currentProfile)}
               />
                <SensorCard 
                 title="Total VOCs" 
@@ -479,7 +512,7 @@ export default function Page() {
                 status={getStatus('ethyl', readings.ethyl, currentProfile)}
               />
               <SensorCard 
-                title="Alcohol/Ethanol" 
+                title="Alcohol" 
                 value={readings.alcohol} 
                 unit="ppm" 
                 icon={<FlaskConical className="w-4 h-4" />}
@@ -488,25 +521,28 @@ export default function Page() {
               />
             </div>
 
-            {/* Analysis Panel */}
             <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold text-white mb-4">Real-time Chemical Analysis</h3>
+              <h3 className="text-lg font-semibold text-white mb-4">
+                {currentProfile.name} Specific Analysis
+              </h3>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                   <p className="text-sm text-slate-400 mb-2">Ammonia Levels (Protein Breakdown)</p>
-                   <LiveChart data={history.ammonia} color="#f43f5e" />
-                </div>
-                <div>
-                   <p className="text-sm text-slate-400 mb-2">VOC Levels (Bacterial Activity)</p>
-                   <LiveChart data={history.voc} color="#3b82f6" />
-                </div>
+                {currentProfile.graphs.map(sensorKey => {
+                  const info = SENSOR_LABELS[sensorKey] || { label: sensorKey, color: '#fff' };
+                  return (
+                    <div key={sensorKey}>
+                      <p className="text-sm text-slate-400 mb-2">{info.label}</p>
+                      <SimpleBarChart data={history[sensorKey]} color={info.color} />
+                    </div>
+                  );
+                })}
               </div>
               
               <div className="mt-6 p-4 bg-slate-800 rounded-lg text-sm text-slate-300">
                 <span className="font-bold text-white block mb-1">AI Diagnostic Insight:</span>
-                {quality === 'safe' && "All parameters are within the optimal freshness range for this product category. No bacterial metabolic byproducts detected."}
-                {quality === 'warning' && "Sensors are detecting elevated levels of volatile organic compounds or temperature deviations. Recommend consuming soon or checking refrigeration."}
-                {quality === 'unsafe' && "CRITICAL: High concentrations of Ammonia, H2S, or Alcohol detected indicating active decomposition or fermentation. Do not consume."}
+                {quality === 'safe' && "All critical parameters for this food type are within optimal range."}
+                {quality === 'warning' && "Sensors are detecting deviation in key spoilage markers. Inspect physical appearance."}
+                {quality === 'unsafe' && "CRITICAL: Food safety compromised. Hazardous levels detected for this specific food profile."}
               </div>
             </div>
 
