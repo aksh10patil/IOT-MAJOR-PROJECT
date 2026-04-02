@@ -1,216 +1,246 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { 
-  Thermometer, 
-  Droplets, 
-  Wind, 
-  Activity, 
-  Zap, 
-  AlertTriangle, 
-  CheckCircle, 
-  XCircle,
-  FlaskConical,
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
   Atom,
-  Beef,
-  Egg,
-  Milk,
-  Carrot,
-  Banana,
+  CheckCircle,
+  Clock3,
+  Database,
+  Download,
+  Droplets,
+  FlaskConical,
+  Play,
   RefreshCcw,
-  Waves // For Turbidity
+  Square,
+  Thermometer,
+  Waves,
+  Wind,
+  XCircle,
 } from 'lucide-react';
 
-// --- Types & Interfaces ---
+import {
+  buildHistory,
+  EMPTY_SUMMARY,
+  getLatestReading,
+  getQuality,
+  getSensorStatus,
+  SENSOR_META,
+  type Quality,
+  type SensorDataPoint,
+  type SensorKey,
+  type SensorStatus,
+  type SessionRecord,
+  type SessionSummary,
+} from '@/lib/iot-data';
 
-interface Threshold {
-  max?: number;
-  min?: number;
-  weight: number;
+interface SessionListResponse {
+  sessions?: SessionRecord[];
+  error?: string;
 }
 
-interface BaseValues {
-  temp: number;
-  humidity: number;
-  voc: number;
-  ammonia: number;
-  h2s: number;
-  ethyl: number;
-  alcohol: number;
-  turbidity: number; // Added Turbidity
-  [key: string]: number;
+interface SessionMutationResponse {
+  session?: SessionRecord;
+  activeSession?: SessionRecord;
+  error?: string;
 }
 
-interface FoodProfile {
-  name: string;
+interface SessionDataResponse {
+  session?: SessionRecord;
+  data?: SensorDataPoint[];
+  summary?: SessionSummary;
+  error?: string;
+}
+
+const SENSOR_CARD_ORDER: Array<{
+  key: SensorKey;
+  max: number;
   icon: React.ReactNode;
-  baseValues: BaseValues;
-  thresholds: Record<string, Threshold>;
-  graphs: string[]; // New: Which charts to show for this food
-}
+}> = [
+  {
+    key: 'temp',
+    max: 40,
+    icon: <Thermometer className="h-4 w-4" />,
+  },
+  {
+    key: 'humidity',
+    max: 100,
+    icon: <Droplets className="h-4 w-4" />,
+  },
+  {
+    key: 'ammonia',
+    max: 40,
+    icon: <Atom className="h-4 w-4" />,
+  },
+  {
+    key: 'h2s',
+    max: 15,
+    icon: <FlaskConical className="h-4 w-4" />,
+  },
+  {
+    key: 'turbidity',
+    max: 120,
+    icon: <Waves className="h-4 w-4" />,
+  },
+  {
+    key: 'voc',
+    max: 600,
+    icon: <Wind className="h-4 w-4" />,
+  },
+  {
+    key: 'alcohol',
+    max: 120,
+    icon: <FlaskConical className="h-4 w-4" />,
+  },
+];
 
-type FoodProfileKey = 'banana' | 'milk' | 'meat' | 'egg' | 'veggies';
+const CHART_KEYS: SensorKey[] = ['temp', 'humidity', 'voc', 'ammonia'];
 
-// --- Configuration & Domain Knowledge ---
-
-const FOOD_PROFILES: Record<FoodProfileKey, FoodProfile> = {
-  banana: {
-    name: 'Fruit',
-    icon: <Banana className="w-6 h-6" />,
-    baseValues: { temp: 18, humidity: 85, voc: 100, ammonia: 0, h2s: 0, ethyl: 10, alcohol: 0, turbidity: 0 },
-    thresholds: {
-      ethyl: { max: 150, weight: 2 },
-      alcohol: { max: 50, weight: 3 },
-      temp: { max: 30, weight: 1 }
-    },
-    graphs: ['ethyl', 'alcohol'] // Specific graphs for Banana
-  },
-  milk: {
-    name: 'Pasteurized Milk',
-    icon: <Milk className="w-6 h-6" />,
-    baseValues: { temp: 4, humidity: 90, voc: 20, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 5 },
-    thresholds: {
-      temp: { max: 7, weight: 3 },
-      voc: { max: 300, weight: 2 },
-      turbidity: { max: 50, weight: 2 }, // High turbidity in whey/clear liquids = bad, or separation in milk
-    },
-    graphs: ['turbidity', 'temp'] // Specific graphs for Milk
-  },
-  meat: {
-    name: 'Raw Meat (Poultry/Beef)',
-    icon: <Beef className="w-6 h-6" />,
-    baseValues: { temp: 2, humidity: 80, voc: 50, ammonia: 2, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 0 },
-    thresholds: {
-      ammonia: { max: 25, weight: 3 },
-      h2s: { max: 2, weight: 3 },
-      temp: { max: 5, weight: 2 }
-    },
-    graphs: ['ammonia', 'h2s'] // Specific graphs for Meat
-  },
-  egg: {
-    name: 'Chicken Eggs',
-    icon: <Egg className="w-6 h-6" />,
-    baseValues: { temp: 10, humidity: 70, voc: 10, ammonia: 0, h2s: 0, ethyl: 0, alcohol: 0, turbidity: 0 },
-    thresholds: {
-      h2s: { max: 5, weight: 3 },
-      ammonia: { max: 15, weight: 2 }
-    },
-    graphs: ['h2s', 'ammonia'] // Specific graphs for Eggs
-  },
-  veggies: {
-    name: 'Vegetables',
-    icon: <Carrot className="w-6 h-6" />,
-    baseValues: { temp: 5, humidity: 95, voc: 30, ammonia: 0, h2s: 0, ethyl: 5, alcohol: 0, turbidity: 10 },
-    thresholds: {
-      humidity: { min: 80, weight: 1 },
-      voc: { max: 200, weight: 2 },
-      turbidity: { max: 100, weight: 1 } // Dirty wash water check
-    },
-    graphs: ['voc', 'humidity'] // Specific graphs for Veggies
+const formatDateTime = (value?: string | null) => {
+  if (!value) {
+    return 'Not available';
   }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
 };
 
-// --- Helper for Labels ---
-const SENSOR_LABELS: Record<string, { label: string, color: string }> = {
-  temp: { label: 'Temperature (°C)', color: '#fbbf24' },
-  humidity: { label: 'Humidity (%)', color: '#60a5fa' },
-  voc: { label: 'VOC Levels (ppb)', color: '#a78bfa' },
-  ammonia: { label: 'Ammonia (ppm)', color: '#f43f5e' },
-  h2s: { label: 'H2S Gas (ppm)', color: '#fb7185' },
-  ethyl: { label: 'Ethylene (ppm)', color: '#34d399' },
-  alcohol: { label: 'Alcohol (ppm)', color: '#2dd4bf' },
-  turbidity: { label: 'Turbidity (NTU)', color: '#a3e635' },
+const formatSessionRange = (session: SessionRecord) =>
+  `${formatDateTime(session.start_time)} - ${
+    session.end_time ? formatDateTime(session.end_time) : 'In progress'
+  }`;
+
+const getQualityMessage = (quality: Quality) => {
+  if (quality === 'safe') {
+    return 'Current sensor values are inside the configured safe range for the selected session.';
+  }
+
+  if (quality === 'warning') {
+    return 'One or more sensor readings are elevated. Review the session trend and inspect the sample.';
+  }
+
+  if (quality === 'unsafe') {
+    return 'Critical thresholds are being crossed. Treat this batch as high risk until reviewed.';
+  }
+
+  return 'Select a session or wait for new samples to arrive from ThingSpeak.';
 };
 
-// --- Components ---
+const createExportFilename = (session: SessionRecord) => {
+  const safeLabel = session.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const stamp = session.start_time.replace(/[:.]/g, '-');
+
+  return `${safeLabel || 'session'}-${stamp}.json`;
+};
 
 interface SensorCardProps {
   title: string;
   value: number;
   unit: string;
   icon: React.ReactNode;
-  status: 'good' | 'warning' | 'danger';
+  status: SensorStatus;
   max: number;
 }
 
-const SensorCard: React.FC<SensorCardProps> = ({ title, value, unit, icon, status, max }) => {
+const SensorCard: React.FC<SensorCardProps> = ({
+  title,
+  value,
+  unit,
+  icon,
+  status,
+  max,
+}) => {
   const percent = Math.min(100, Math.max(0, (value / (max * 1.5)) * 100));
-  
-  let colorClass = "text-emerald-500";
-  let bgClass = "bg-emerald-500";
-  
+
+  let colorClass = 'text-emerald-500';
+  let bgClass = 'bg-emerald-500';
+
   if (status === 'warning') {
-    colorClass = "text-amber-500";
-    bgClass = "bg-amber-500";
+    colorClass = 'text-amber-500';
+    bgClass = 'bg-amber-500';
   } else if (status === 'danger') {
-    colorClass = "text-rose-500";
-    bgClass = "bg-rose-500";
+    colorClass = 'text-rose-500';
+    bgClass = 'bg-rose-500';
   }
 
   return (
-    <div className="bg-slate-800 rounded-xl p-4 border border-slate-700 shadow-lg hover:border-slate-500 transition-all duration-300">
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex items-center gap-2 text-slate-400 text-sm font-medium">
+    <div className="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow-lg transition-all duration-300 hover:border-slate-500">
+      <div className="mb-2 flex items-start justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
           {icon}
           {title}
         </div>
-        <div className={`text-xs px-2 py-1 rounded-full font-bold bg-opacity-20 ${bgClass.replace('bg-', 'text-')} ${bgClass}`}>
+        <div
+          className={`rounded-full px-2 py-1 text-xs font-bold bg-opacity-20 ${colorClass} ${bgClass}`}
+        >
           {status.toUpperCase()}
         </div>
       </div>
-      
-      <div className="flex items-end gap-1 my-2">
-        <span className="text-3xl font-bold text-white tracking-tight">{value}</span>
-        <span className="text-sm text-slate-500 mb-1">{unit}</span>
+
+      <div className="my-2 flex items-end gap-1">
+        <span className="text-3xl font-bold tracking-tight text-white">
+          {value}
+        </span>
+        <span className="mb-1 text-sm text-slate-500">{unit}</span>
       </div>
 
-      <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-        <div 
-          className={`h-full rounded-full transition-all duration-1000 ease-out ${bgClass}`}
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-900">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${bgClass}`}
           style={{ width: `${percent}%` }}
-        ></div>
+        />
       </div>
     </div>
   );
 };
 
 interface StatusBadgeProps {
-  quality: 'safe' | 'warning' | 'unsafe';
+  quality: Quality;
 }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ quality }) => {
   let config = {
-    color: 'bg-emerald-500',
-    icon: <CheckCircle className="w-12 h-12 text-white" />,
-    text: 'SAFE TO EAT',
-    desc: 'No spoilage biomarkers detected.'
+    color: 'bg-slate-700',
+    icon: <Clock3 className="h-12 w-12 text-white" />,
+    text: 'WAITING FOR DATA',
+    desc: getQualityMessage('idle'),
   };
 
-  if (quality === 'warning') {
+  if (quality === 'safe') {
+    config = {
+      color: 'bg-emerald-500',
+      icon: <CheckCircle className="h-12 w-12 text-white" />,
+      text: 'SAFE',
+      desc: getQualityMessage('safe'),
+    };
+  } else if (quality === 'warning') {
     config = {
       color: 'bg-amber-500',
-      icon: <AlertTriangle className="w-12 h-12 text-white" />,
+      icon: <AlertTriangle className="h-12 w-12 text-white" />,
       text: 'CAUTION',
-      desc: 'Early signs of degradation detected.'
+      desc: getQualityMessage('warning'),
     };
   } else if (quality === 'unsafe') {
     config = {
       color: 'bg-rose-600',
-      icon: <XCircle className="w-12 h-12 text-white" />,
+      icon: <XCircle className="h-12 w-12 text-white" />,
       text: 'UNSAFE',
-      desc: 'Hazardous bacterial or chemical levels.'
+      desc: getQualityMessage('unsafe'),
     };
   }
 
   return (
-    <div className={`${config.color} rounded-2xl p-6 shadow-xl text-white flex items-center justify-between transition-colors duration-500`}>
+    <div
+      className={`${config.color} flex items-center justify-between rounded-2xl p-6 text-white shadow-xl transition-colors duration-500`}
+    >
       <div>
         <h2 className="text-3xl font-bold tracking-wider">{config.text}</h2>
-        <p className="text-white text-opacity-80 mt-1">{config.desc}</p>
+        <p className="mt-1 text-sm text-white/80">{config.desc}</p>
       </div>
-      <div className="bg-white bg-opacity-20 p-4 rounded-full animate-pulse">
-        {config.icon}
-      </div>
+      <div className="rounded-full bg-white/20 p-4">{config.icon}</div>
     </div>
   );
 };
@@ -220,29 +250,37 @@ interface SimpleBarChartProps {
   color?: string;
 }
 
-const SimpleBarChart: React.FC<SimpleBarChartProps> = ({ data, color = "#10b981" }) => {
-  if (!data || data.length === 0) return null;
-  
-  // Find max for scaling, default to at least 10 to avoid huge bars for small numbers
-  const maxVal = Math.max(...data, 10) * 1.2;
+const SimpleBarChart: React.FC<SimpleBarChartProps> = ({
+  data,
+  color = '#10b981',
+}) => {
+  if (data.length === 0) {
+    return (
+      <div className="mt-4 flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-900/50 text-sm text-slate-500">
+        No samples yet
+      </div>
+    );
+  }
+
+  const maxValue = Math.max(...data, 10) * 1.2;
 
   return (
-    <div className="w-full h-32 mt-4 flex items-end justify-between gap-2 p-2 bg-slate-900/50 rounded-lg border border-slate-800">
-      {data.map((val, i) => {
-        const height = Math.min(100, (val / maxVal) * 100);
+    <div className="mt-4 flex h-32 items-end justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-2">
+      {data.map((value, index) => {
+        const height = Math.min(100, (value / maxValue) * 100);
+
         return (
-          <div 
-            key={i} 
-            className="w-full rounded-t-sm transition-all duration-500 hover:brightness-125 relative group"
-            style={{ 
-              height: `${Math.max(4, height)}%`, // Min height 4% to show 0 values
+          <div
+            key={`${value}-${index}`}
+            className="group relative w-full rounded-t-sm transition-all duration-500 hover:brightness-125"
+            style={{
+              height: `${Math.max(4, height)}%`,
               backgroundColor: color,
-              opacity: 0.8
+              opacity: 0.82,
             }}
           >
-             {/* Simple tooltip on hover */}
-            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 border border-slate-600">
-              {val}
+            <div className="absolute -top-8 left-1/2 z-10 -translate-x-1/2 rounded border border-slate-600 bg-slate-800 px-2 py-1 text-xs whitespace-nowrap text-white opacity-0 transition-opacity group-hover:opacity-100">
+              {value}
             </div>
           </div>
         );
@@ -251,303 +289,590 @@ const SimpleBarChart: React.FC<SimpleBarChartProps> = ({ data, color = "#10b981"
   );
 };
 
-// --- Main Application ---
-
 export default function App() {
-  const [activeTab, setActiveTab] = useState<FoodProfileKey>('banana');
-  const [simulationMode, setSimulationMode] = useState<'normal' | 'spoilage'>('normal');
-  const [readings, setReadings] = useState<BaseValues>(FOOD_PROFILES['banana'].baseValues);
-  
-  // Generic history state that can hold any key
-  const [history, setHistory] = useState<Record<string, number[]>>({ 
-    ammonia: [], temp: [], voc: [], h2s: [], ethyl: [], alcohol: [], humidity: [], turbidity: []
-  });
-  
-  const [quality, setQuality] = useState<'safe' | 'warning' | 'unsafe'>('safe');
-  const [isScanning, setIsScanning] = useState(false);
+  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [filteredData, setFilteredData] = useState<SensorDataPoint[]>([]);
+  const [summary, setSummary] = useState<SessionSummary>(EMPTY_SUMMARY);
+  const [sessionLabel, setSessionLabel] = useState('');
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const getStatus = (sensor: string, value: number, profile: FoodProfile): 'good' | 'warning' | 'danger' => {
-    const rules = profile.thresholds[sensor];
-    if (!rules) return 'good';
-    
-    if (rules.max) {
-      if (value > rules.max * 1.5) return 'danger';
-      if (value > rules.max) return 'warning';
-    }
-    if (rules.min) {
-      if (value < rules.min * 0.7) return 'danger';
-      if (value < rules.min) return 'warning';
-    }
-    return 'good';
-  };
+  const isMountedRef = useRef(true);
 
-  const currentProfile = FOOD_PROFILES[activeTab];
+  const selectedSession =
+    sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const activeSession = sessions.find((session) => session.end_time === null) ?? null;
+  const history = buildHistory(filteredData);
+  const latestReading = getLatestReading(filteredData);
+  const quality = selectedSession ? getQuality(latestReading) : 'idle';
 
-  const takeReading = () => {
-    setIsScanning(true);
-    
-    setTimeout(() => {
-      const isSpoiling = simulationMode === 'spoilage';
-      const newReadings = { ...readings }; 
-      
-      Object.keys(currentProfile.baseValues).forEach(key => {
-        let base = currentProfile.baseValues[key];
-        let noise = (Math.random() - 0.5) * (base * 0.1 || 2);
-        
-        if (isSpoiling) {
-          if (['ammonia', 'h2s', 'voc', 'ethyl', 'alcohol'].includes(key)) {
-             base = base + 50 + (Math.random() * 20); 
-          }
-          if (key === 'turbidity') base = base + 40 + (Math.random() * 10); // Spoilage = cloudy
-          if (key === 'temp') base += 5;
+  const loadSessions = useCallback(
+    async (showSpinner = false, preferredSessionId?: string) => {
+      if (showSpinner) {
+        setSessionsLoading(true);
+      }
+
+      try {
+        const response = await fetch('/api/session', {
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as SessionListResponse;
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? 'Failed to load sessions.');
         }
 
-        newReadings[key] = parseFloat((base + noise).toFixed(1));
-      });
+        const nextSessions = payload.sessions ?? [];
 
-      setReadings(newReadings);
+        if (!isMountedRef.current) {
+          return;
+        }
 
-      let score = 0;
-      Object.entries(currentProfile.thresholds).forEach(([key, rule]) => {
-         if (newReadings[key] > (rule.max || Infinity)) score += rule.weight;
-         if (rule.min && newReadings[key] < rule.min) score += rule.weight;
-      });
+        setSessions(nextSessions);
+        setSelectedSessionId((currentSelectedSessionId) => {
+          if (
+            preferredSessionId &&
+            nextSessions.some((session) => session.id === preferredSessionId)
+          ) {
+            return preferredSessionId;
+          }
 
-      if (score >= 3) setQuality('unsafe');
-      else if (score >= 1) setQuality('warning');
-      else setQuality('safe');
+          if (
+            currentSelectedSessionId &&
+            nextSessions.some((session) => session.id === currentSelectedSessionId)
+          ) {
+            return currentSelectedSessionId;
+          }
 
-      setHistory(prev => {
-        const next = { ...prev };
-        Object.keys(newReadings).forEach(key => {
-           if (!next[key]) next[key] = new Array(12).fill(0);
-           // Keep last 12 points
-           next[key] = [...next[key].slice(1), newReadings[key]];
+          const nextDefaultSession =
+            nextSessions.find((session) => session.end_time === null) ??
+            nextSessions[0];
+
+          return nextDefaultSession?.id ?? null;
         });
-        return next;
-      });
+        setError(null);
+      } catch (loadError) {
+        if (isMountedRef.current) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Unable to load sessions.'
+          );
+        }
+      } finally {
+        if (showSpinner && isMountedRef.current) {
+          setSessionsLoading(false);
+        }
+      }
+    },
+    []
+  );
 
-      setIsScanning(false);
-    }, 800);
-  };
+  const loadSessionData = useCallback(async (sessionId: string, showSpinner = false) => {
+    if (showSpinner) {
+      setDataLoading(true);
+    }
+
+    try {
+      const response = await fetch(`/api/data?sessionId=${sessionId}`, {
+        cache: 'no-store',
+      });
+      const payload = (await response.json()) as SessionDataResponse;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'Failed to load session data.');
+      }
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      const nextData = payload.data ?? [];
+      setFilteredData(nextData);
+      setSummary(payload.summary ?? EMPTY_SUMMARY);
+      setLastUpdated(nextData[nextData.length - 1]?.timestamp ?? null);
+      setError(null);
+    } catch (loadError) {
+      if (isMountedRef.current) {
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Unable to load session data.'
+        );
+        setFilteredData([]);
+        setSummary(EMPTY_SUMMARY);
+        setLastUpdated(null);
+      }
+    } finally {
+      if (showSpinner && isMountedRef.current) {
+        setDataLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
-    const profile = FOOD_PROFILES[activeTab];
-    setReadings(profile.baseValues);
-    setQuality('safe');
-    setSimulationMode('normal');
-    
-    // Generate Pre-filled History: Mix of Fresh and Not-So-Fresh
-    // This creates a realistic looking "past" on the graphs
-    const newHistory: Record<string, number[]> = {};
-    
-    Object.keys(profile.baseValues).forEach(key => {
-      const base = profile.baseValues[key];
-      const limit = profile.thresholds[key]?.max || (base * 1.5) || 20;
+    isMountedRef.current = true;
+    void loadSessions(true);
 
-      newHistory[key] = Array.from({ length: 12 }).map(() => {
-        // 70% chance of "Fresh" (near base), 30% chance of "Not So Fresh" (spikes)
-        const isFresh = Math.random() > 0.3; 
-        
-        let val;
-        if (isFresh) {
-          // Clean data: Base +/- small noise
-          val = base + ((Math.random() - 0.5) * (base * 0.2 || 2));
-        } else {
-          // "Not so fresh" data: Elevated levels (approaching limit)
-          // Simulates moments where sensor detected spoilage pockets or drift
-          val = base + (Math.random() * (limit * 0.5));
-        }
-        
-        return Math.max(0, parseFloat(val.toFixed(1)));
+    const intervalId = window.setInterval(() => {
+      void loadSessions();
+    }, 10000);
+
+    return () => {
+      isMountedRef.current = false;
+      window.clearInterval(intervalId);
+    };
+  }, [loadSessions]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setFilteredData([]);
+      setSummary(EMPTY_SUMMARY);
+      setLastUpdated(null);
+      return;
+    }
+
+    void loadSessionData(selectedSessionId, true);
+
+    const intervalId = window.setInterval(() => {
+      void loadSessionData(selectedSessionId);
+    }, 10000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [selectedSessionId, loadSessionData]);
+
+  const handleStartSession = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedLabel = sessionLabel.trim();
+
+    if (!trimmedLabel) {
+      setError('Enter a label before starting a session.');
+      return;
+    }
+
+    setIsMutating(true);
+
+    try {
+      const response = await fetch('/api/session/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ label: trimmedLabel }),
       });
-      
-      // Ensure the very last point (current) is the ideal base to start fresh
-      newHistory[key][11] = base;
-    });
-    
-    setHistory(newHistory);
+      const payload = (await response.json()) as SessionMutationResponse;
 
-  }, [activeTab]);
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'Failed to start session.');
+      }
+
+      if (!payload.session) {
+        throw new Error('The session was created but no session payload was returned.');
+      }
+
+      setSessionLabel('');
+      await loadSessions(true, payload.session.id);
+      setError(null);
+    } catch (mutationError) {
+      if (isMountedRef.current) {
+        setError(
+          mutationError instanceof Error
+            ? mutationError.message
+            : 'Unable to start session.'
+        );
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsMutating(false);
+      }
+    }
+  };
+
+  const handleEndSession = async () => {
+    if (!activeSession) {
+      setError('There is no active session to end.');
+      return;
+    }
+
+    setIsMutating(true);
+
+    try {
+      const response = await fetch('/api/session/end', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId: activeSession.id }),
+      });
+      const payload = (await response.json()) as SessionMutationResponse;
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? 'Failed to end session.');
+      }
+
+      await loadSessions(true, payload.session?.id ?? activeSession.id);
+      setError(null);
+    } catch (mutationError) {
+      if (isMountedRef.current) {
+        setError(
+          mutationError instanceof Error
+            ? mutationError.message
+            : 'Unable to end session.'
+        );
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsMutating(false);
+      }
+    }
+  };
+
+  const handleRefresh = async () => {
+    await loadSessions(true, selectedSessionId ?? undefined);
+
+    if (selectedSessionId) {
+      await loadSessionData(selectedSessionId, true);
+    }
+  };
+
+  const handleExport = () => {
+    if (!selectedSession || filteredData.length === 0) {
+      return;
+    }
+
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          {
+            session: selectedSession,
+            summary,
+            data: filteredData,
+          },
+          null,
+          2
+        ),
+      ],
+      { type: 'application/json' }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = createExportFilename(selectedSession);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const lastUpdatedLabel = lastUpdated
+    ? formatDateTime(lastUpdated)
+    : 'No session samples yet';
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-raleway selection:bg-emerald-500 selection:text-white pb-12">
-      
-      <header className="border-b border-slate-800 bg-slate-900 sticky top-0 z-50 backdrop-blur-md bg-opacity-80">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+    <div className="min-h-screen bg-slate-950 pb-12 text-slate-200 selection:bg-emerald-500 selection:text-white">
+      <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500 rounded-lg">
-              <Activity className="w-6 h-6 text-white" />
+            <div className="rounded-lg bg-emerald-500 p-2">
+              <Activity className="h-6 w-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">BioSense IoT</h1>
-              <p className="text-xs text-slate-400">Advanced Food Quality Monitoring</p>
+              <p className="text-xs text-slate-400">
+                Session-based food monitoring on ThingSpeak + Neon
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex bg-slate-800 p-1 rounded-lg">
-              <button 
-                onClick={() => setSimulationMode('normal')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${simulationMode === 'normal' ? 'bg-slate-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
-              >
-                Normal
-              </button>
-              <button 
-                onClick={() => setSimulationMode('spoilage')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${simulationMode === 'spoilage' ? 'bg-rose-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
-              >
-                <Zap className="w-4 h-4" /> Spoilage
-              </button>
+          <div className="flex flex-col items-start gap-3 md:items-end">
+            <div className="text-left md:text-right">
+              <p className="text-xs font-semibold tracking-[0.2em] text-emerald-400 uppercase">
+                ThingSpeak Channel 3194508
+              </p>
+              <p className="text-xs text-slate-400">Polling every 10 seconds</p>
+              <p className="text-xs text-slate-500">
+                Latest sample in selected session: {lastUpdatedLabel}
+              </p>
             </div>
 
-            <button
-              onClick={takeReading}
-              disabled={isScanning}
-              className="bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-emerald-900/20 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCcw className={`w-5 h-5 ${isScanning ? 'animate-spin' : ''}`} />
-              {isScanning ? 'Reading...' : 'Read Sensors'}
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleRefresh}
+                disabled={sessionsLoading || dataLoading || isMutating}
+                className="flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2 font-bold text-white shadow-lg shadow-emerald-900/20 transition-all hover:bg-emerald-600 active:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCcw
+                  className={`h-5 w-5 ${
+                    sessionsLoading || dataLoading ? 'animate-spin' : ''
+                  }`}
+                />
+                Refresh Data
+              </button>
+
+              <button
+                onClick={handleExport}
+                disabled={!selectedSession || filteredData.length === 0}
+                className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-5 py-2 font-semibold text-slate-200 transition-colors hover:border-slate-500 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Download className="h-4 w-4" />
+                Export JSON
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 mt-8">
-        
-        <div className="flex overflow-x-auto gap-2 pb-4 mb-6 scrollbar-hide">
-          {Object.entries(FOOD_PROFILES).map(([key, profile]) => (
+      <main className="mx-auto mt-8 grid max-w-7xl gap-6 px-4 lg:grid-cols-[320px,1fr]">
+        <aside className="space-y-6">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center gap-2">
+              <Database className="h-5 w-5 text-emerald-400" />
+              <h2 className="text-lg font-semibold text-white">Session Controls</h2>
+            </div>
+
+            <form onSubmit={handleStartSession} className="space-y-3">
+              <label className="block text-sm font-medium text-slate-300">
+                Session Label
+              </label>
+              <input
+                value={sessionLabel}
+                onChange={(event) => setSessionLabel(event.target.value)}
+                placeholder="banana, milk, meat..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-emerald-500"
+              />
+
+              <button
+                type="submit"
+                disabled={isMutating || Boolean(activeSession)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Play className="h-4 w-4" />
+                Start Session
+              </button>
+            </form>
+
             <button
-              key={key}
-              onClick={() => setActiveTab(key as FoodProfileKey)}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl border transition-all whitespace-nowrap
-                ${activeTab === key 
-                  ? 'bg-slate-800 border-emerald-500 text-emerald-400 shadow-lg shadow-emerald-900/20' 
-                  : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:border-slate-700'
-                }`}
+              onClick={handleEndSession}
+              disabled={isMutating || !activeSession}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {profile.icon}
-              <span className="font-medium">{profile.name}</span>
+              <Square className="h-4 w-4" />
+              End Session
             </button>
-          ))}
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          <div className="space-y-6">
-            <StatusBadge quality={quality} />
-            
-            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <Wind className="w-5 h-5 text-emerald-400" /> Environment
-              </h3>
-              
-              <div className="space-y-4">
-                <SensorCard 
-                  title="Temperature" 
-                  value={readings.temp} 
-                  unit="°C" 
-                  icon={<Thermometer className="w-4 h-4" />}
-                  max={30}
-                  status={getStatus('temp', readings.temp, currentProfile)}
-                />
-                <SensorCard 
-                  title="Humidity" 
-                  value={readings.humidity} 
-                  unit="%" 
-                  icon={<Droplets className="w-4 h-4" />}
-                  max={100}
-                  status={getStatus('humidity', readings.humidity, currentProfile)}
-                />
-              </div>
+            <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+              <p className="font-medium text-white">
+                {activeSession ? `Active: ${activeSession.label}` : 'No active session'}
+              </p>
+              <p className="mt-1">
+                {activeSession
+                  ? `Started ${formatDateTime(activeSession.start_time)}`
+                  : 'Start a session to tag incoming sensor data with a time window.'}
+              </p>
             </div>
-            
-             <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
-               <h3 className="text-sm font-medium text-slate-400 mb-2">Temperature Trend</h3>
-               <SimpleBarChart data={history.temp} color="#fbbf24" />
-             </div>
           </div>
 
-          <div className="lg:col-span-2 space-y-6">
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               <SensorCard 
-                title="Ammonia" 
-                value={readings.ammonia} 
-                unit="ppm" 
-                icon={<Atom className="w-4 h-4" />}
-                max={50}
-                status={getStatus('ammonia', readings.ammonia, currentProfile)}
-              />
-               <SensorCard 
-                title="H2S Gas" 
-                value={readings.h2s} 
-                unit="ppm" 
-                icon={<FlaskConical className="w-4 h-4" />}
-                max={10}
-                status={getStatus('h2s', readings.h2s, currentProfile)}
-              />
-               <SensorCard 
-                title="Turbidity" 
-                value={readings.turbidity} 
-                unit="NTU" 
-                icon={<Waves className="w-4 h-4" />}
-                max={100}
-                status={getStatus('turbidity', readings.turbidity, currentProfile)}
-              />
-               <SensorCard 
-                title="Total VOCs" 
-                value={readings.voc} 
-                unit="ppb" 
-                icon={<Wind className="w-4 h-4" />}
-                max={500}
-                status={getStatus('voc', readings.voc, currentProfile)}
-              />
-               <SensorCard 
-                title="Ethylene" 
-                value={readings.ethyl} 
-                unit="ppm" 
-                icon={<Zap className="w-4 h-4" />}
-                max={200}
-                status={getStatus('ethyl', readings.ethyl, currentProfile)}
-              />
-              <SensorCard 
-                title="Alcohol" 
-                value={readings.alcohol} 
-                unit="ppm" 
-                icon={<FlaskConical className="w-4 h-4" />}
-                max={100}
-                status={getStatus('alcohol', readings.alcohol, currentProfile)}
-              />
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Sessions</h2>
+                <p className="text-xs text-slate-400">
+                  Select a time range to filter the dashboard
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
+                {sessions.length}
+              </span>
             </div>
 
-            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                {currentProfile.name} Specific Analysis
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {currentProfile.graphs.map(sensorKey => {
-                  const info = SENSOR_LABELS[sensorKey] || { label: sensorKey, color: '#fff' };
-                  return (
-                    <div key={sensorKey}>
-                      <p className="text-sm text-slate-400 mb-2">{info.label}</p>
-                      <SimpleBarChart data={history[sensorKey]} color={info.color} />
+            <div className="space-y-3">
+              {sessions.map((session) => {
+                const isSelected = selectedSessionId === session.id;
+                const isActive = session.end_time === null;
+
+                return (
+                  <button
+                    key={session.id}
+                    onClick={() => setSelectedSessionId(session.id)}
+                    className={`w-full rounded-xl border p-4 text-left transition-all ${
+                      isSelected
+                        ? 'border-emerald-500 bg-slate-800 shadow-lg shadow-emerald-900/10'
+                        : 'border-slate-800 bg-slate-950 hover:border-slate-700 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-white capitalize">
+                          {session.label}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-slate-400">
+                          {formatSessionRange(session)}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-1 text-[11px] font-bold uppercase ${
+                          isActive
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {isActive ? 'Active' : 'Ended'}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-              
-              <div className="mt-6 p-4 bg-slate-800 rounded-lg text-sm text-slate-300">
-                <span className="font-bold text-white block mb-1">AI Diagnostic Insight:</span>
-                {quality === 'safe' && "All critical parameters for this food type are within optimal range."}
-                {quality === 'warning' && "Sensors are detecting deviation in key spoilage markers. Inspect physical appearance."}
-                {quality === 'unsafe' && "CRITICAL: Food safety compromised. Hazardous levels detected for this specific food profile."}
+                  </button>
+                );
+              })}
+
+              {sessions.length === 0 && !sessionsLoading ? (
+                <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-500">
+                  No sessions recorded yet. Start one to tag a new dataset.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </aside>
+
+        <section className="space-y-6">
+          <div className="grid gap-6 xl:grid-cols-[1.3fr,0.9fr]">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold tracking-[0.2em] text-emerald-400 uppercase">
+                    Selected Session
+                  </p>
+                  <h2 className="mt-2 text-3xl font-bold text-white capitalize">
+                    {selectedSession?.label ?? 'Choose a session'}
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-400">
+                    {selectedSession
+                      ? formatSessionRange(selectedSession)
+                      : 'The dashboard now reads from session windows instead of food tabs. Pick a session to load filtered ThingSpeak data.'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-400">
+                  <p className="font-medium text-white">{summary.totalSamples} samples</p>
+                  <p className="mt-1">
+                    {selectedSession?.end_time ? 'Closed session' : 'Live session window'}
+                  </p>
+                </div>
               </div>
             </div>
 
+            <StatusBadge quality={quality} />
           </div>
-        </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <p className="text-sm text-slate-400">Average Temperature</p>
+              <p className="mt-2 text-3xl font-bold text-white">
+                {summary.avgTemp}
+                <span className="ml-1 text-base text-slate-500">deg C</span>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <p className="text-sm text-slate-400">Average Humidity</p>
+              <p className="mt-2 text-3xl font-bold text-white">
+                {summary.avgHumidity}
+                <span className="ml-1 text-base text-slate-500">%</span>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <p className="text-sm text-slate-400">Max Ammonia</p>
+              <p className="mt-2 text-3xl font-bold text-white">
+                {summary.maxAmmonia}
+                <span className="ml-1 text-base text-slate-500">ppm</span>
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <p className="text-sm text-slate-400">Max Turbidity</p>
+              <p className="mt-2 text-3xl font-bold text-white">
+                {summary.maxTurbidity}
+                <span className="ml-1 text-base text-slate-500">NTU</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {SENSOR_CARD_ORDER.map(({ key, max, icon }) => {
+              const meta = SENSOR_META[key];
+
+              return (
+                <SensorCard
+                  key={key}
+                  title={meta.label}
+                  value={latestReading[key]}
+                  unit={meta.unit}
+                  icon={icon}
+                  max={max}
+                  status={getSensorStatus(key, latestReading[key])}
+                />
+              );
+            })}
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Session Trends</h3>
+                <p className="text-sm text-slate-400">
+                  Last {Math.max(...CHART_KEYS.map((key) => history[key].length), 0)} samples from the selected session
+                </p>
+              </div>
+              {(sessionsLoading || dataLoading) && selectedSession ? (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <RefreshCcw className="h-4 w-4 animate-spin" />
+                  Updating
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
+              {CHART_KEYS.map((sensorKey) => {
+                const meta = SENSOR_META[sensorKey];
+
+                return (
+                  <div key={sensorKey}>
+                    <p className="text-sm text-slate-400">{meta.label}</p>
+                    <SimpleBarChart data={history[sensorKey]} color={meta.color} />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <h3 className="text-lg font-semibold text-white">Session Insight</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              {selectedSession
+                ? getQualityMessage(quality)
+                : 'Start a session, let ThingSpeak collect data, then select that session to analyze its time window.'}
+            </p>
+
+            {selectedSession && filteredData.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-950 p-4 text-sm text-slate-500">
+                No ThingSpeak samples fell inside this session window yet. Keep the
+                session running a little longer or choose a session with recorded
+                data.
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+                {error}
+              </div>
+            ) : null}
+          </div>
+        </section>
       </main>
     </div>
   );

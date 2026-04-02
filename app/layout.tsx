@@ -1,29 +1,20 @@
-import type { Metadata } from "next";
-import { Raleway } from "next/font/google";
-import "./globals.css";
+import type { Metadata } from 'next';
 
-
-const raleway = Raleway({
-  variable: "--font-raleway",
-  subsets: ["latin"],
-  weight: ["400"],
-  display: "swap",
-});
+import './globals.css';
 
 
 export const metadata: Metadata = {
-  title: "Narayan Rajdeep IOT-PROJECT",
-  description: "IOT BASED BIOSENSOR PROJECT",
+  title: 'Narayan Rajdeep IOT-PROJECT',
+  description: 'IOT BASED BIOSENSOR PROJECT',
   icons: {
-    icon: "/favicon.png" // or .png or .svg
-},
-}
+    icon: '/favicon.png',
+  },
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${raleway.variable} ${raleway.variable}`}>
+    <html lang="en">
       <body className="font-raleway">{children}</body>
     </html>
   );
 }
-
