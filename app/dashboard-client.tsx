@@ -521,7 +521,7 @@ export default function DashboardClient({ dataset }: DashboardClientProps) {
               <Activity className="h-6 w-6" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl font-bold text-white">Food Spoilage Detection (By Narayan & Rajdeep - B.Tech 8)</h1>
+              <h1 className="text-xl font-bold text-white">Food Spoilage Detection (By Narayan & Rajdeep - B.Tech VIII)</h1>
               <p className="truncate text-xs text-zinc-400">
                 Local spoilage dashboard from {dataset.source}
               </p>
