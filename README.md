@@ -1,3 +1,4 @@
+
 # AI-IoT Based Sensor Fused Model for Food Spoilage Detection
 
 [![Live Dashboard](https://img.shields.io/badge/Live_Dashboard-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://narayan-rajdeeep-iot-major-project.vercel.app/)
@@ -12,9 +13,9 @@ Developed as a **B.Tech. Biotechnology Dissertation Project** at the **Amity Ins
 
 <!-- Replace the image path below with your actual hero photo or dashboard screenshot -->
 <p align="center">
-  <img src="./docs/images/project-hero.png" alt="AI-IoT Food Spoilage Detection Prototype and Dashboard" width="90%" />
+  <img width="807" alt="Food Spoilage Detection Next.js Dashboard" src="https://github.com/user-attachments/assets/a43694a2-99f3-47ca-bfe6-22dd3aad05b5" />
   <br />
-  <em>Figure 1: Hardware sensing prototype and live Next.js spoilage monitoring dashboard. (Replace <code>./docs/images/project-hero.png</code> with your photo.)</em>
+  <em>Figure 1: Hardware sensing prototype and live Next.js spoilage monitoring dashboard.</em>
 </p>
 
 ---
