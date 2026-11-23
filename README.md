@@ -79,19 +79,6 @@ Nearly one-third of global food production is lost or wasted annually, with post
 
 ## 2. System Architecture & Hardware Setup
 
-<!-- Add your system architecture diagram and bench hardware photo here -->
-<p align="center">
-  <img src="./docs/images/system-architecture.png" alt="System Architecture Flow Diagram" width="85%" />
-  <br />
-  <em>Figure 2: End-to-end sensing, embedded processing, cloud storage, and dashboard architecture.</em>
-</p>
-
-<p align="center">
-  <img src="./docs/images/hardware-setup.jpg" alt="Physical Hardware Prototype and Sensing Chamber" width="85%" />
-  <br />
-  <em>Figure 3: Benchtop prototype layout showing microcontroller, MOS gas array, turbidity probe, LCD, and semi-enclosed food chamber.</em>
-</p>
-
 ### Hardware Bill of Materials (BOM)
 
 | Component | Model / Spec | Primary Role in System | Target Biochemical / Physical Signal |
