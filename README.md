@@ -15,8 +15,19 @@ Developed as a **B.Tech. Biotechnology Dissertation Project** at the **Amity Ins
 <p align="center">
   <img width="807" alt="Food Spoilage Detection Next.js Dashboard" src="https://github.com/user-attachments/assets/a43694a2-99f3-47ca-bfe6-22dd3aad05b5" />
   <br />
-  <em>Figure 1: Hardware sensing prototype and live Next.js spoilage monitoring dashboard.</em>
+  <em>Figure 1: Hardware sensing prototyp
+</em>
 </p>
+
+
+<p align="center">
+<img width="767" height="496" alt="Screenshot 2026-11-23 at 11 57 20 pm" src="https://github.com/user-attachments/assets/d06f3034-88dc-4ef0-8a78-ff559324a78d" />
+  <br />
+  <em>Figure 1: Hardware sensing prototyp
+</em>
+</p>
+
+
 
 ---
 
