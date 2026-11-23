@@ -119,13 +119,6 @@ $$\text{ppm} = A \cdot \left(\frac{R_s}{R_0}\right)^B$$
 
 ## 3. Mathematical Model: Weighted Sensor Fusion & Spoilage Index
 
-<!-- Add your sensor fusion workflow diagram here -->
-<p align="center">
-  <img src="./docs/images/sensor-fusion-workflow.png" alt="Sensor Fusion Pipeline Diagram" width="70%" />
-  <br />
-  <em>Figure 4: Feature-level multi-sensor fusion pipeline converting raw readings to the unified Spoilage Index ($SI$).</em>
-</p>
-
 Because individual MQ-series and turbidity sensors operate across incompatible numerical scales and baseline offsets, raw values are processed through a 4-stage analytical pipeline:
 
 ### Step 1: Baseline Calibration
@@ -181,12 +174,6 @@ $$S_i = N_i \left(S_{i,\text{spoil}} - S_{i,\text{base}}\right) + S_{i,\text{bas
 
 ## 5. Experimental Dataset & Comparative Results
 
-<!-- Add your multi-specimen spoilage curves image here -->
-<p align="center">
-  <img src="./docs/images/spoilage-curves.png" alt="Comparative Spoilage Index Progression Curves" width="90%" />
-  <br />
-  <em>Figure 5: Day-wise Spoilage Index ($SI$) progression across rapid-, moderate-, and slow-spoiling food categories.</em>
-</p>
 
 ### Complete 12-Specimen Experimental Summary
 
@@ -263,10 +250,12 @@ The deployed dashboard applies non-overlapping sensor cutoffs per food category:
 
 <!-- Add a screenshot of your Vercel dashboard here -->
 <p align="center">
-  <img src="./docs/images/dashboard-ui.png" alt="Next.js Food Spoilage Monitoring Dashboard" width="90%" />
+<img width="1033" height="991" alt="Screenshot 2026-11-24 at 12 01 47 am" src="https://github.com/user-attachments/assets/331053dc-7cfb-4e33-87aa-f2a865cdc641" />
   <br />
   <em>Figure 6: Deployed Next.js web application displaying item selection, per-sensor progress bars, and multi-day trend charts.</em>
 </p>
+
+
 
 ### Dashboard Features
 * **Category Sidebar:** Filter across all 12 monitored specimens grouped into Fruits, Vegetables, and Dairy.
